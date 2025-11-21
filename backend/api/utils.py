@@ -186,13 +186,13 @@ def search_tmdb(query: str, content_type: str = 'movie') -> List[Dict]:
         return []
 
 
-def get_recommendations_based_on_ratings(user_ratings: List[Rating] = None) -> List[Dict]:
+def get_recommendations_based_on_ratings(user_ratings: List[Rating] = None, pool_size: int = 24) -> List[Dict]:
     """
     Generate recommendations based on user's ratings
     Simple implementation: recommends based on genre preferences
     """
     # Try cached recommendations first (short TTL)
-    cache_key = 'recommendations_v2'
+    cache_key = f'recommendations_v2_{pool_size}'
     cached_recs = cache.get(cache_key)
     if cached_recs:
         return cached_recs
@@ -285,16 +285,102 @@ def get_recommendations_based_on_ratings(user_ratings: List[Rating] = None) -> L
         }
         for content in recommendations
     ]
+    # Ensure we return at least `min_recs` recommendations by falling back to TMDB discover
+    # target pool size (how many recommendations we want cached)
+    target = pool_size
+    final_list = rec_list.copy()
 
-    if not rec_list:
-        # Try TMDB-based recommendations (returns tmdb_id, title, description, poster_url)
-        tmdb_results = recommend_from_tmdb_genres(top_genres, limit=20)
+    if len(final_list) < target:
+        needed = target - len(final_list)
+        tmdb_results = recommend_from_tmdb_genres(top_genres, limit=needed)
         if tmdb_results:
-            cache.set(cache_key, tmdb_results, 60 * 5)
-            return tmdb_results
+            # Normalize TMDB items to the same shape as local items where possible
+            normalized = []
+            for item in tmdb_results:
+                normalized.append({
+                    'tmdb_id': item.get('tmdb_id'),
+                    'title': item.get('title'),
+                    'content_type': 'movie' if item.get('release_date') else 'tv_show',
+                    'poster_url': item.get('poster_url'),
+                    'genre': top_genres,
+                })
+            final_list.extend(normalized[:needed])
 
-    cache.set(cache_key, rec_list, 60 * 5)
-    return rec_list
+    # If still short, try a larger TMDB fallback to fill up
+    if len(final_list) < target:
+        needed = target - len(final_list)
+        tmdb_more = recommend_from_tmdb_genres(top_genres, limit=needed * 2)
+        for item in tmdb_more:
+            if len(final_list) >= target:
+                break
+            final_list.append({
+                'tmdb_id': item.get('tmdb_id'),
+                'title': item.get('title'),
+                'content_type': 'movie' if item.get('release_date') else 'tv_show',
+                'poster_url': item.get('poster_url'),
+                'genre': top_genres,
+            })
+    # If we still don't have enough, try to include additional local top-rated content (excluding interacted and already included)
+    if len(final_list) < target:
+        needed = target - len(final_list)
+        included_local_ids = {c.get('id') for c in final_list if c.get('id')}
+        from django.db.models import Avg
+        additional_local = Content.objects.exclude(id__in=interacted_ids).exclude(id__in=included_local_ids).annotate(avg_rating=Avg('ratings__rating')).order_by('-avg_rating', '-created_at')[:needed]
+        for content in additional_local:
+            final_list.append({
+                'id': content.id,
+                'title': content.title,
+                'content_type': content.content_type,
+                'poster_url': content.poster_url,
+                'genre': [g.name for g in content.genre.all()],
+            })
+    # As a last resort, if still empty, return top-rated global content (already handled earlier)
+    cache.set(cache_key, final_list, 60 * 5)
+    return final_list
+
+
+def update_recommendations_cache_after_import(genres: List[str] = None, new_tmdb_id: Optional[int] = None, new_local_id: Optional[int] = None, pool_size: int = 24):
+    """Update the cached recommendation pool when an item is imported.
+
+    - Remove any cached recommendation that matches the imported item (by tmdb_id or local id)
+    - Fetch additional TMDB fallback items (using `genres`) to fill the pool back to `pool_size`
+    """
+    cache_key = f'recommendations_v2_{pool_size}'
+    cached = cache.get(cache_key)
+    if not cached:
+        return
+
+    # Remove imported items from cached list
+    def is_imported(item):
+        if new_local_id and item.get('id') == new_local_id:
+            return True
+        if new_tmdb_id and item.get('tmdb_id') == new_tmdb_id:
+            return True
+        return False
+
+    updated = [item for item in cached if not is_imported(item)]
+
+    # If we still have enough, just reset cache
+    if len(updated) >= pool_size:
+        cache.set(cache_key, updated[:pool_size], 60 * 5)
+        return
+
+    # Otherwise, try to fill from TMDB using genres (if provided)
+    needed = pool_size - len(updated)
+    if genres:
+        tmdb_more = recommend_from_tmdb_genres(genres, limit=needed * 2)
+        for item in tmdb_more:
+            if len(updated) >= pool_size:
+                break
+            updated.append({
+                'tmdb_id': item.get('tmdb_id'),
+                'title': item.get('title'),
+                'content_type': 'movie' if item.get('release_date') else 'tv_show',
+                'poster_url': item.get('poster_url'),
+                'genre': genres,
+            })
+
+    cache.set(cache_key, updated[:pool_size], 60 * 5)
     
 
 def _fetch_tmdb_genre_map(api_key: str) -> Dict[str, int]:

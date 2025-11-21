@@ -17,8 +17,10 @@ from .serializers import (
 from .utils import (
     fetch_tmdb_movie, fetch_tmdb_tv, search_tmdb,
     get_recommendations_based_on_ratings, estimate_completion_time,
-    generate_review_from_notes, search_omdb, fetch_omdb_title
+    generate_review_from_notes, search_omdb, fetch_omdb_title,
+    update_recommendations_cache_after_import
 )
+from django.core.cache import cache
 
 
 class GenreViewSet(viewsets.ModelViewSet):
@@ -65,6 +67,22 @@ class ContentViewSet(viewsets.ModelViewSet):
             ).filter(avg_rating__gte=min_rating)
         
         return queryset.distinct()
+
+    def perform_create(self, serializer):
+        instance = serializer.save()
+        # Invalidate recommendations cache when new content is added
+        try:
+            cache.delete('recommendations_v2')
+        except Exception:
+            pass
+
+    def perform_update(self, serializer):
+        instance = serializer.save()
+        # Invalidate recommendations cache when content is updated
+        try:
+            cache.delete('recommendations_v2')
+        except Exception:
+            pass
     
     @action(detail=False, methods=['get'])
     def movies(self, request):
@@ -111,7 +129,8 @@ class ContentViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'])
     def recommendations(self, request):
         """Get content recommendations based on ratings"""
-        recommendations = get_recommendations_based_on_ratings()
+        # Return a larger pool (server-side) so frontend can display a slice and replacements are available
+        recommendations = get_recommendations_based_on_ratings(pool_size=24)
         return Response(recommendations)
     
     @action(detail=False, methods=['get'])
@@ -172,6 +191,15 @@ class ContentViewSet(viewsets.ModelViewSet):
             )
             movie.genre.set(genres)
             
+            # Update recommendations cache to remove this imported item and replace it
+            try:
+                update_recommendations_cache_after_import(genres=[g.name for g in genres], new_tmdb_id=tmdb_id, new_local_id=movie.id, pool_size=24)
+            except Exception:
+                try:
+                    cache.delete('recommendations_v2_24')
+                except Exception:
+                    pass
+
             serializer = MovieSerializer(movie)
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         
@@ -204,6 +232,15 @@ class ContentViewSet(viewsets.ModelViewSet):
             )
             tv_show.genre.set(genres)
             
+            # Update recommendations cache to remove this imported item and replace it
+            try:
+                update_recommendations_cache_after_import(genres=[g.name for g in genres], new_tmdb_id=tmdb_id, new_local_id=tv_show.id, pool_size=24)
+            except Exception:
+                try:
+                    cache.delete('recommendations_v2_24')
+                except Exception:
+                    pass
+
             serializer = TVShowSerializer(tv_show)
             return Response(serializer.data, status=status.HTTP_201_CREATED)
 
@@ -258,6 +295,13 @@ class ContentViewSet(viewsets.ModelViewSet):
                 status='wishlist',
             )
             movie.genre.set(genres)
+            try:
+                update_recommendations_cache_after_import(genres=[g.name for g in genres], new_tmdb_id=None, new_local_id=movie.id, pool_size=24)
+            except Exception:
+                try:
+                    cache.delete('recommendations_v2_24')
+                except Exception:
+                    pass
             serializer = MovieSerializer(movie)
             return Response(serializer.data, status=status.HTTP_201_CREATED)
 
@@ -274,6 +318,13 @@ class ContentViewSet(viewsets.ModelViewSet):
             status='wishlist',
         )
         tv_show.genre.set(genres)
+        try:
+            update_recommendations_cache_after_import(genres=[g.name for g in genres], new_tmdb_id=None, new_local_id=tv_show.id, pool_size=24)
+        except Exception:
+            try:
+                cache.delete('recommendations_v2_24')
+            except Exception:
+                pass
         serializer = TVShowSerializer(tv_show)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
