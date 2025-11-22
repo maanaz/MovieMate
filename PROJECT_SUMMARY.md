@@ -316,10 +316,5 @@ moviemate/
 
 ---
 
-**Project Status**: ✅ Complete and Ready for Submission
-
-**Last Updated**: 2024
-
-**Contact**: doniya@sayonetech.com, ranju@sayonetech.com
 
 
