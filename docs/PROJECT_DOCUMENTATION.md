@@ -285,12 +285,11 @@ TMDB API has rate limits:
 ## Support
 
 For issues or questions:
-- Email: doniya@sayonetech.com
-- CC: ranju@sayonetech.com
+- Email: maanazantony08@gmail.com
 
 ---
 
 Documentation Version: 1.0
-Last Updated: 2024
+Last Updated: 2025
 
 
