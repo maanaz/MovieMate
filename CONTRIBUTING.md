@@ -87,7 +87,7 @@ We welcome contributions for:
 
 If you have questions, please:
 - Open an issue
-- Email: doniya@sayonetech.com
+- Email:maanazantony08@gmail.com
 
 Thank you for contributing! 🎉
 
