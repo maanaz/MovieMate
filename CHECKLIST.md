@@ -34,10 +34,8 @@
 - [x] Filter by genre, platform, or status
 - [x] Sort content
 - [x] Search functionality
-
-### Optional Features
 - [x] TMDB API integration
-- [x] AI recommendations based on ratings
+- [x] Recommendations based on ratings
 - [x] Generate reviews from notes
 - [x] Completion time estimates
 - [x] Watch time statistics
