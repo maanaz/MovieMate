@@ -378,6 +378,17 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 - Django and React communities
 - All open-source contributors
 
+## 👨‍💻 Developer
+
+Name: Maanaz K Antony
+GitHub: https://github.com/maanaz
+
+Project Repo: https://github.com/maanaz/MovieMate
+
+## 📄 License
+
+This project is open-source and free to use.
+
 ---
 
 Made with ❤️ for movie and TV show enthusiasts
